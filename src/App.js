@@ -83,7 +83,7 @@ function App() {
 
   return (
     <div style={{ textAlign: "center", marginTop: "50px" }}>
-      <h2>USDT Withdraw dApp (BSC)</h2>
+      <h2>1USDT Withdraw dApp (BSC)</h2>
       {address ? (
         <>
           <p>Connected: {address}</p>
